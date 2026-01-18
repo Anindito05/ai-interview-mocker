@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm";
 
 export async function GET(req, context) {
   try {
-    // ✅ params is async
+    //  params is async
     const { interviewId } = await context.params;
 
-    console.log("📥 Fetching feedback for:", interviewId);
+    console.log(" Fetching feedback for:", interviewId);
 
     if (!interviewId) {
       return NextResponse.json([], { status: 200 });
@@ -22,10 +22,10 @@ export async function GET(req, context) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("❌ Feedback API error:", error);
+    console.error(" Feedback API error:", error);
     return NextResponse.json(
       { error: "Failed to fetch feedback" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

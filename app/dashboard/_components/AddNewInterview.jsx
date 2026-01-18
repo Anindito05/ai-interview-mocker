@@ -1,6 +1,6 @@
 "use client";
-import React, { useState } from "react";
 
+import React, { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,18 +8,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { LoaderCircle, ArrowRight } from "lucide-react"; // Added ArrowRight
 import { sendMessage } from "@/utils/GeminiAIModal";
-import { LoaderCircle } from "lucide-react";
-/*
-import { db } from "@/utils/db";
-import { MockInterview } from "@/utils/schema";
-import { v4 as uuidv4 } from "uuid";
-import moment from "moment";
-*/
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
@@ -29,164 +22,199 @@ const AddNewInterview = () => {
   const [jobDesc, setJobDesc] = useState("");
   const [jobExperience, setJobExperience] = useState("");
   const [loading, setLoading] = useState(false);
-  const [jsonResponse, setJsonResponse] = useState([]);
+  const [errorCode, setErrorCode] = useState(null);
+
   const { user } = useUser();
   const router = useRouter();
 
+  // ERROR MESSAGES & PROMPTS (Kept exactly the same as your code)
+  const errorMessages = {
+    "-1": "Job role does not appear to be a real-world role.",
+    "-2": "Job description does not logically match the job role.",
+    "-3": "Years of experience must be between 0 and 50.",
+    0: "Job role, description, and experience are all invalid.",
+    UNKNOWN: "Something went wrong. Please try again.",
+  };
+
+  const getValidationPrompt = () => `
+    You are a validation engine.
+    Return ONLY a single integer. No text. No explanation.
+    Validation rules:
+    - If job role is not a real-world job or is nonsensical → return -1
+    - If job role, job description, AND years of experience are all invalid → return 0
+    - If job description does not logically match the job role → return -2
+    - If years of experience <= 0 OR > 50 → return -3
+    - If all inputs are realistic and logically consistent → return 1
+    Use common real-world knowledge.
+    Input:
+    Job Role: ${jobPosition}
+    Job Description: ${jobDesc}
+    Years of Experience: ${jobExperience}
+  `;
+
+  const getGenerationPrompt = () => `
+    You are a JSON API. Return ONLY valid JSON.
+    Return exactly this format:
+    [
+      { "Question": "string", "Answer": "string" },
+      { "Question": "string", "Answer": "string" },
+      { "Question": "string", "Answer": "string" },
+      { "Question": "string", "Answer": "string" },
+      { "Question": "string", "Answer": "string" }
+    ]
+    Job Role: ${jobPosition}
+    Job Description: ${jobDesc}
+    Years of Experience: ${jobExperience}
+  `;
+
+  /* SUBMIT HANDLER */
   const onSubmit = async (e) => {
-    setLoading(true);
     e.preventDefault();
-
-    const InputPrompt = `
-You are a JSON API.
-
-Return ONLY valid JSON.
-NO markdown.
-NO explanations.
-NO ellipsis.
-NO formatting characters.
-
-Rules:
-- Double quotes only
-- No trailing commas
-- No special symbols like ** or ....
-- Escape newlines properly
-
-Return exactly this format:
-
-[
-  { "Question": "string", "Answer": "string" },
-  { "Question": "string", "Answer": "string" },
-  { "Question": "string", "Answer": "string" },
-  { "Question": "string", "Answer": "string" },
-  { "Question": "string", "Answer": "string" }
-]
-
-Job Position: ${jobPosition}
-Job Description: ${jobDesc}
-Years of Experience: ${jobExperience}
-`;
+    setLoading(true);
+    setErrorCode(null);
 
     try {
-      console.log("going for request");
-      //
-      const result = await sendMessage(InputPrompt);
+      /* STEP 1: VALIDATION */
+      const validationResp = await sendMessage(getValidationPrompt());
+      const validationCode = Number(validationResp.text.trim());
 
-      const MockJsonResp = result.text
-        .replace("```json", "")
-        .replace("```", "")
+      if (validationCode !== 1) {
+        setErrorCode(validationCode);
+        return;
+      }
+
+      /* STEP 2: GENERATION */
+      const generationResp = await sendMessage(getGenerationPrompt());
+      const cleanedJSON = generationResp.text
+        .replace(/^```json/, "")
+        .replace(/^```/, "")
+        .replace(/```$/, "")
         .trim();
 
       let parsedResp;
       try {
-        parsedResp = JSON.parse(MockJsonResp);
+        parsedResp = JSON.parse(cleanedJSON);
+        if (!Array.isArray(parsedResp)) throw new Error("Invalid JSON shape");
       } catch (err) {
-        console.error("Invalid JSON from Gemini:", MockJsonResp);
-        parsedResp = []; // fallback
+        setErrorCode("UNKNOWN");
+        return;
       }
-      setJsonResponse(parsedResp);
-      //
-      /*
-      if (MockJsonResp) {
-        console.log("going for db");
-        const resp = await db
-          .insert(MockInterview)
-          .values({
-            mockId: uuidv4(),
-            jsonMockResp: parsedResp,
-            jobPosition: jobPosition,
-            jobDesc: jobDesc,
-            jobExperience: jobExperience,
-            createdBy: user?.primaryEmailAddress?.emailAddress,
-          })
-          .returning({ mockId: MockInterview.mockId });
-        console.log("insert complete");
-        if (resp) {
-          setOpenDialog(false);
-          router.push("/dashboard/interview/" + resp[0]?.mockId);
-        }
-      }*/
-      if (parsedResp) {
-        const response = await fetch("/api/mock-interview", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonMockResp: parsedResp,
-            jobPosition,
-            jobDesc,
-            jobExperience,
-            createdBy: user?.primaryEmailAddress?.emailAddress,
-          }),
-        });
-        console.log("db done");
-        const data = await response.json();
 
-        if (data.success) {
-          setOpenDialog(false);
-          router.push("/dashboard/interview/" + data.data.mockId);
-        }
+      /* STEP 3: SAVE TO DB */
+      const response = await fetch("/api/mock-interview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonMockResp: parsedResp,
+          jobPosition,
+          jobDesc,
+          jobExperience,
+          createdBy: user?.primaryEmailAddress?.emailAddress,
+        }),
+      });
+
+      if (!response.ok) throw new Error("API failed");
+      const data = await response.json();
+
+      if (data?.success && data?.data?.mockId) {
+        setOpenDialog(false);
+        router.push("/dashboard/interview/" + data.data.mockId);
       } else {
-        console.log("ERROR");
+        throw new Error("Invalid API response");
       }
+    } catch (err) {
+      console.error(err);
+      setErrorCode("UNKNOWN");
     } finally {
       setLoading(false);
     }
   };
 
+  /* UI */
   return (
     <div>
+      {/* NEW HERO BUTTON TRIGGER */}
       <div
-        className="p-10 rounded-lg border bg-secondary hover:scale-105 hover:shadow-sm transition-all cursor-pointer"
-        onClick={() => setOpenDialog(true)}
+        onClick={() => {
+          setErrorCode(null);
+          setOpenDialog(true);
+        }}
+        className="inline-block"
       >
-        <h2 className="text-lg text-center">+ Add New</h2>
+        <Button className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-6 text-lg rounded-full shadow-lg transition-all hover:scale-105">
+          Try now for free
+          <ArrowRight className="ml-2 h-5 w-5" />
+        </Button>
+        <p className="text-center text-xs text-gray-400 mt-2">
+          No payment required
+        </p>
       </div>
-      <Dialog open={openDialog}>
+
+      <Dialog
+        open={openDialog}
+        onOpenChange={(isOpen) => {
+          setOpenDialog(isOpen);
+          if (!isOpen) {
+            setErrorCode(null);
+            setJobPosition("");
+            setJobDesc("");
+            setJobExperience("");
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-2xl">
-              Tell us more about your job interviewing
+              Tell us more about your job interview
             </DialogTitle>
             <DialogDescription>
               <form onSubmit={onSubmit}>
                 <div className="my-3">
                   <h2>
-                    Add details about your job position, job description and
-                    years of experience
+                    Add details about your job position, description, and years
+                    of experience
                   </h2>
 
                   <div className="mt-7 my-3">
                     <label className="text-black">Job Role / Position</label>
                     <Input
                       className="mt-1"
-                      placeholder="Ex. Full stack Developer"
+                      placeholder="Ex. Operations Manager, Software Engineer"
                       required
                       onChange={(e) => setJobPosition(e.target.value)}
                     />
                   </div>
+
+                  {errorCode && (
+                    <div className="mb-3 rounded-md border border-red-400 bg-red-100 p-2 text-sm text-red-700">
+                      {errorMessages[errorCode]}
+                    </div>
+                  )}
+
                   <div className="my-5">
                     <label className="text-black">
-                      Job Description / Tech stack (In Short)
+                      Job Description / Responsibilities
                     </label>
                     <Textarea
-                      className="placeholder-opacity-50"
-                      placeholder="Ex. React, Angular, Nodejs, Mysql, Nosql, Python"
+                      placeholder="Brief description of responsibilities or skills"
                       required
                       onChange={(e) => setJobDesc(e.target.value)}
                     />
                   </div>
+
                   <div className="my-5">
                     <label className="text-black">Years of Experience</label>
                     <Input
-                      className="mt-1"
-                      placeholder="Ex. 5"
-                      max="50"
                       type="number"
+                      min="1"
+                      max="50"
+                      placeholder="Ex. 5"
                       required
-                      onChange={(e) => setJobExperience(e.target.value)}
+                      onChange={(e) => setJobExperience(Number(e.target.value))}
                     />
                   </div>
                 </div>
+
                 <div className="flex gap-5 justify-end">
                   <Button
                     type="button"
@@ -198,8 +226,8 @@ Years of Experience: ${jobExperience}
                   <Button type="submit" disabled={loading}>
                     {loading ? (
                       <>
-                        <LoaderCircle className="animate-spin" />
-                        Generating From AI
+                        <LoaderCircle className="animate-spin mr-2" />
+                        Validating & Generating
                       </>
                     ) : (
                       "Start Interview"

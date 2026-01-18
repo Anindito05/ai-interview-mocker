@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY, // SERVER ONLY
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 export async function POST(req) {
@@ -13,11 +13,10 @@ export async function POST(req) {
     if (!audioFile) {
       return NextResponse.json(
         { error: "No audio file provided" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Convert audio to base64
     const arrayBuffer = await audioFile.arrayBuffer();
     const base64Audio = Buffer.from(arrayBuffer).toString("base64");
 
@@ -27,7 +26,9 @@ export async function POST(req) {
         {
           role: "user",
           parts: [
-            { text: "Transcribe this audio clearly." },
+            {
+              text: "Transcribe this audio clearly. If no speech is detected, return an empty string.",
+            },
             {
               inlineData: {
                 mimeType: "audio/webm",
@@ -39,17 +40,15 @@ export async function POST(req) {
       ],
     });
 
-    // ✅ SAFE text extraction
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-    console.log("🎤 User said:", text);
+    console.log("Transcribed text:", text);
 
     return NextResponse.json({ text });
   } catch (error) {
     console.error("Transcription error:", error);
     return NextResponse.json(
       { error: "Transcription failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

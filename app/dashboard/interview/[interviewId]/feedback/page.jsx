@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 
 const Feedback = () => {
   const router = useRouter();
-  const params = useParams(); // ✅ CORRECT WAY
+  const params = useParams(); //  CORRECT WAY
   const interviewId = params.interviewId;
 
   const [feedbackList, setFeedbackList] = useState([]);
@@ -27,7 +27,7 @@ const Feedback = () => {
 
   const getFeedback = async () => {
     try {
-      console.log("📤 Fetching feedback for:", interviewId);
+      console.log(" Fetching feedback for:", interviewId);
 
       const res = await fetch(`/api/interview/feedback/${interviewId}`);
 
@@ -36,11 +36,11 @@ const Feedback = () => {
       }
 
       const data = await res.json();
-      console.log("📊 Feedback Data:", data);
+      console.log(" Feedback Data:", data);
 
       setFeedbackList(data);
     } catch (error) {
-      console.error("❌ Client fetch error:", error);
+      console.error(" Client fetch error:", error);
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ const Feedback = () => {
 
     const total = feedbackList.reduce(
       (sum, item) => sum + Number(item.rating),
-      0
+      0,
     );
 
     return (total / feedbackList.length).toFixed(1);

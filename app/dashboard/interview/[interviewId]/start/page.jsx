@@ -1,79 +1,96 @@
 "use client";
-
-import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import QuestionSection from "./_components/QuestionSection";
 import RecordAnswerSection from "./_components/RecordAnswerSection";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import { LoaderCircle } from "lucide-react";
 
-const StartInterview = () => {
+export default function StartInterview() {
   const { interviewId } = useParams();
-
   const [interviewData, setInterviewData] = useState(null);
-  const [mockInterviewQuestion, setMockInterviewQuestion] = useState([]);
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const [questions, setQuestions] = useState([]);
+  const [index, setIndex] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (interviewId) {
-      getInterviewDetails();
-    }
+    fetch(`/api/interview/${interviewId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setInterviewData(data);
+        const parsedQuestions =
+          typeof data.jsonMockResp === "string"
+            ? JSON.parse(data.jsonMockResp)
+            : data.jsonMockResp;
+        setQuestions(parsedQuestions);
+      });
   }, [interviewId]);
 
-  const getInterviewDetails = async () => {
-    const res = await fetch(`/api/interview/${interviewId}`);
-    const data = await res.json();
-
-    console.log("API DATA:", data);
-
-    setInterviewData(data);
-
-    const parsedQuestions =
-      typeof data.jsonMockResp === "string"
-        ? JSON.parse(data.jsonMockResp)
-        : data.jsonMockResp;
-
-    setMockInterviewQuestion(parsedQuestions);
+  const onAnswerChange = (qIdx, val) => {
+    setAnswers((prev) => ({ ...prev, [qIdx]: val }));
   };
 
-  if (!interviewData) return <div>Loading...</div>;
+  const endInterview = async () => {
+    setLoading(true);
+    try {
+      for (let i = 0; i < questions.length; i++) {
+        await fetch("/api/interview/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mockId: interviewData.mockId,
+            question: questions[i].Question || questions[i].question,
+            correctAns: questions[i].Answer || questions[i].answer,
+            userAnswer: answers[i] || "",
+            userEmail: interviewData.createdBy, // Matches MockInterview schema
+          }),
+        });
+      }
+      window.location.href = `/dashboard/interview/${interviewId}/feedback`;
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!interviewData) return <div className="p-10 text-center">Loading...</div>;
 
   return (
-    <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 mt-3">
+    <div className="p-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
         <QuestionSection
-          mockInterviewQuestion={mockInterviewQuestion}
-          activeQuestionIndex={activeQuestionIndex}
+          mockInterviewQuestion={questions}
+          activeQuestionIndex={index}
         />
-
         <RecordAnswerSection
-          mockInterviewQuestion={mockInterviewQuestion}
-          activeQuestionIndex={activeQuestionIndex}
-          interviewData={interviewData}
+          activeQuestionIndex={index}
+          savedAnswer={answers[index] || ""}
+          onAnswerChange={onAnswerChange}
         />
       </div>
 
-      <div className="flex gap-3 mr-10 md:justify-end md:gap-6">
-        {activeQuestionIndex > 0 && (
-          <Button onClick={() => setActiveQuestionIndex((i) => i - 1)}>
-            Previous Question
+      <div className="flex justify-between mt-10">
+        <Button disabled={index === 0} onClick={() => setIndex(index - 1)}>
+          Previous
+        </Button>
+        {index < questions.length - 1 ? (
+          <Button onClick={() => setIndex(index + 1)}>Next</Button>
+        ) : (
+          <Button
+            variant="destructive"
+            onClick={endInterview}
+            disabled={loading}
+          >
+            {loading ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              "End Interview"
+            )}
           </Button>
-        )}
-
-        {activeQuestionIndex < mockInterviewQuestion.length - 1 && (
-          <Button onClick={() => setActiveQuestionIndex((i) => i + 1)}>
-            Next Question
-          </Button>
-        )}
-
-        {activeQuestionIndex === mockInterviewQuestion.length - 1 && (
-          <Link href={`/dashboard/interview/${interviewData.mockId}/feedback`}>
-            <Button>End Interview</Button>
-          </Link>
         )}
       </div>
     </div>
   );
-};
-
-export default StartInterview;
+}

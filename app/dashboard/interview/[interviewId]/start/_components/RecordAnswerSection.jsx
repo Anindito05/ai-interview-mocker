@@ -1,43 +1,34 @@
 "use client";
-
 import { Button } from "@/components/ui/button";
-import Image from "next/image";
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
-import { Mic, MicOff } from "lucide-react";
+import { Mic, MicOff, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
-import { useUser } from "@clerk/nextjs";
-import { WebCamContext } from "@/app/dashboard/layout";
 
 const RecordAnswerSection = ({
-  mockInterviewQuestion,
   activeQuestionIndex,
-  interviewData,
+  savedAnswer,
+  onAnswerChange,
 }) => {
-  const { user } = useUser();
-  const { webCamEnabled, setWebCamEnabled } = useContext(WebCamContext);
-
-  const [userAnswer, setUserAnswer] = useState("");
+  // Local state for the current question's text
+  const [userAnswer, setUserAnswer] = useState(savedAnswer || "");
   const [isRecording, setIsRecording] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
-  const hasSubmittedRef = useRef(false);
 
-  // 🔁 Auto-submit AFTER recording finishes
+  // RESET LOGIC: This fixes the "shared text" bug
   useEffect(() => {
-    if (!isRecording && userAnswer.length > 10 && !hasSubmittedRef.current) {
-      hasSubmittedRef.current = true;
-      submitAnswer();
-    }
-  }, [isRecording, userAnswer]);
+    // When the question index changes, load the saved answer for that specific question
+    setUserAnswer(savedAnswer || "");
+    // Stop any UI recording state if the user clicks next while recording
+    setIsRecording(false);
+  }, [activeQuestionIndex, savedAnswer]);
 
-  // 🎙️ Start Recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
       mediaRecorderRef.current = new MediaRecorder(stream);
       chunksRef.current = [];
 
@@ -46,32 +37,28 @@ const RecordAnswerSection = ({
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(chunksRef.current, {
-          type: "audio/webm",
-        });
+        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
         await sendForTranscription(audioBlob);
+        setIsRecording(false);
       };
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      toast("Recording started 🎙️");
+      toast("Recording started... Speak now.");
     } catch (err) {
-      console.error("Mic error:", err);
-      toast("Microphone permission denied");
+      console.error(err);
+      toast("Microphone access denied. Please check permissions.");
     }
   };
 
-  // ⏹ Stop Recording
   const stopRecording = () => {
-    if (!mediaRecorderRef.current) return;
-    mediaRecorderRef.current.stop();
-    setIsRecording(false);
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
   };
 
-  // 🧠 Send audio → Gemini
   const sendForTranscription = async (audioBlob) => {
     setLoading(true);
-
     const formData = new FormData();
     formData.append("audio", audioBlob);
 
@@ -81,92 +68,83 @@ const RecordAnswerSection = ({
         body: formData,
       });
 
+      if (!res.ok) throw new Error("Transcription request failed");
+
       const data = await res.json();
+      const textResult = data.text || "";
 
-      // ✅ LOG WHAT USER SPOKE
-      console.log("🎧 User spoke:", data.text);
+      // Update local state and parent state
+      setUserAnswer(textResult);
+      onAnswerChange(activeQuestionIndex, textResult);
 
-      if (!data.text || data.text.length < 5) {
-        toast("Could not understand speech");
-        setLoading(false);
-        return;
-      }
-
-      setUserAnswer(data.text);
-    } catch (err) {
-      console.error("Transcription failed:", err);
-      toast("Speech recognition failed");
+      toast("Voice transcribed successfully!");
+    } catch (error) {
+      console.error(error);
+      toast("Failed to transcribe audio. You can type your answer instead.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
-  // 💾 Save Answer
-  const submitAnswer = async () => {
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/interview/answer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mockId: interviewData.mockId,
-          question: mockInterviewQuestion[activeQuestionIndex]?.Question,
-          correctAns: mockInterviewQuestion[activeQuestionIndex]?.Answer,
-          userAnswer,
-          userEmail: user?.primaryEmailAddress?.emailAddress,
-        }),
-      });
-
-      if (res.ok) {
-        toast("Answer saved ✅");
-      } else {
-        toast("Failed to save answer ❌");
-      }
-    } catch (err) {
-      console.error("Save answer error:", err);
-      toast("Server error while saving");
-    }
-
-    setUserAnswer("");
-    hasSubmittedRef.current = false;
-    setLoading(false);
+  // Manual editing handler
+  const handleTextChange = (e) => {
+    const newValue = e.target.value;
+    setUserAnswer(newValue);
+    onAnswerChange(activeQuestionIndex, newValue);
   };
 
   return (
-    <div className="flex flex-col items-center gap-5">
-      <div className="bg-black p-5 rounded-lg">
-        {webCamEnabled ? (
-          <Webcam mirrored width={300} height={250} />
+    <div className="flex flex-col items-center gap-5 border p-5 rounded-xl bg-slate-50 shadow-sm">
+      {/* Webcam Container */}
+      <div className="bg-black p-4 rounded-xl flex justify-center w-full max-w-md shadow-inner">
+        <Webcam mirrored width={400} height={300} />
+      </div>
+
+      {/* Control Button */}
+      <Button
+        variant={isRecording ? "destructive" : "outline"}
+        onClick={isRecording ? stopRecording : startRecording}
+        disabled={loading}
+        className="flex items-center gap-2 h-12 px-6 rounded-full transition-all"
+      >
+        {loading ? (
+          <LoaderCircle className="animate-spin" />
+        ) : isRecording ? (
+          "Stop Recording"
         ) : (
-          <Image src="/globe.svg" width={200} height={200} alt="cam" />
+          "Record Answer"
         )}
-      </div>
+        {isRecording ? (
+          <MicOff className="w-5 h-5" />
+        ) : (
+          <Mic className="w-5 h-5" />
+        )}
+      </Button>
 
-      <div className="flex gap-4">
-        <Button onClick={() => setWebCamEnabled((p) => !p)}>
-          {webCamEnabled ? "Close WebCam" : "Enable WebCam"}
-        </Button>
-
-        <Button
-          variant="outline"
-          onClick={isRecording ? stopRecording : startRecording}
-          disabled={loading}
-        >
-          {isRecording ? (
-            <MicOff className="text-red-500" />
-          ) : (
-            <Mic className="text-green-600" />
+      {/* Answer Area */}
+      <div className="flex flex-col gap-2 w-full max-w-md">
+        <div className="flex justify-between items-center">
+          <label className="text-sm font-bold text-slate-600">
+            Answer for Question #{activeQuestionIndex + 1}
+          </label>
+          {loading && (
+            <span className="text-xs text-blue-500 animate-pulse font-medium">
+              AI Transcribing...
+            </span>
           )}
-        </Button>
-      </div>
-
-      {/* Optional Debug UI */}
-      {userAnswer && (
-        <div className="mt-3 text-sm text-gray-600 max-w-md text-center">
-          <strong>Recognized:</strong> {userAnswer}
         </div>
-      )}
+
+        <textarea
+          className="border border-slate-300 rounded-xl p-4 w-full h-40 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 bg-white"
+          placeholder="Your transcribed text will appear here. You can also type or edit your answer directly..."
+          value={userAnswer}
+          onChange={handleTextChange}
+        />
+        <p className="text-[10px] text-slate-400 italic">
+          *You can record your voice or type your answer manually. Use Prev/Next
+          to save your progress.
+        </p>
+      </div>
     </div>
   );
 };

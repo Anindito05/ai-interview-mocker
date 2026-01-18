@@ -1,22 +1,23 @@
 "use client";
-
 import React from "react";
 import InterviewItemCard from "./InterviewItemCard";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const InterviewListClient = ({ interviewList }) => {
   return (
-    <div>
-      <h2 className="font-medium text-xl">Previous Mock Interviews</h2>
-
+    <div className="w-full">
       {interviewList?.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 my-3">
+        // Changed to grid-cols-1 to stack them like rows as requested
+        <div className="grid grid-cols-1 gap-4">
           {interviewList.map((interview, index) => (
             <InterviewItemCard key={index} interview={interview} />
           ))}
         </div>
       ) : (
-        <Skeleton className="w-full h-20 rounded-lg mt-4" />
+        <div className="space-y-3">
+          <Skeleton className="w-full h-24 rounded-lg" />
+          <Skeleton className="w-full h-24 rounded-lg" />
+        </div>
       )}
     </div>
   );

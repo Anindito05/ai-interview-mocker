@@ -12,6 +12,8 @@
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
     "@google/genai": "^1.34.0",
+    "@mediapipe/camera_utils": "^0.3.1675466862",
+    "@mediapipe/face_mesh": "^0.4.1633559619",
     "@neondatabase/serverless": "^1.0.2",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
